@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
 
     size_t sphereSampleCount = 16;
     std::cout << "const uint kSphereSampleCount = " << sphereSampleCount << ";" << std::endl;
-    std::cout << "const vec3 kSphereSamples[kSampleCount] = vec3[](" << std::endl;
+    std::cout << "const vec3 kSphereSamples[kSphereSampleCount] = vec3[](" << std::endl;
     for (size_t i = 0; i < sphereSampleCount; i++) {
         float s = float(i) / sphereSampleCount;
         float r = random(generator);
@@ -73,6 +73,18 @@ int main(int argc, char** argv) {
             std::cout << std::endl;
         }
     }
+    std::cout << ");" << std::endl;
+
+    float kSpiralTurns = 7.0;
+    size_t spiralSampleCount = 7;
+    std::cout << "const uint kSpiralSampleCount = " << spiralSampleCount << ";" << std::endl;
+    std::cout << "const vec3 kSipralSamples[kSpiralSampleCount] = vec3[](" << std::endl;
+    for (size_t i = 0; i < spiralSampleCount; i++) {
+        float radius = (i + 0.5f) / (spiralSampleCount - 0.5f);
+        float angle = radius * radius * (kSpiralTurns * 2.0f * M_PI);
+        std::cout << " vec3(" << std::cos(angle) << "," << std::sin(angle) << "," << radius * radius << "),";
+    }
+
     std::cout << ");" << std::endl;
 
     return 0;

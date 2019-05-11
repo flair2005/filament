@@ -59,6 +59,13 @@ fragment {
         vec3(-0.57093,-0.531056,-0.626114), vec3(0.699014,0.0632826,-0.712303), vec3(0.207495,0.976129,-0.0641723), vec3(-0.0609008,-0.869738,-0.489742)
     );
 
+    const uint kSpiralSampleCount = 7;
+    const vec3 kSipralSamples[kSpiralSampleCount] = vec3[](
+        vec3(0.966326,0.257322,0.00591716), vec3(-0.69718,0.716896,0.0532544), vec3(0.975223,0.221226,0.147929),
+        vec3(0.982771,0.184826,0.289941), vec3(-0.613055,0.79004,0.47929), vec3(0.997237,0.0742889,0.715976),
+        vec3(1,-1.16027e-06,1)
+    );
+
     float random(const vec2 st) {
         return fract(sin(dot(st.xy, vec2(12.9898,78.233)))* 43758.5453123);
     }
@@ -66,8 +73,8 @@ fragment {
     vec3 getNoise(const vec2 uv) {
         uint ix = uint(gl_FragCoord.x) & 3u;
         uint iy = uint(gl_FragCoord.y) & 3u;
-        //vec3 noise = kNoiseSamples[ix + iy * 4];
-        vec3 noise = normalize(vec3(random(uv), random(uv*2.0), random(uv*4.0)));
+        vec3 noise = kNoiseSamples[ix + iy * 4];
+        //vec3 noise = normalize(vec3(random(uv), random(uv*2.0), random(uv*4.0)));
         return noise;
     }
 
@@ -117,13 +124,57 @@ fragment {
         return (d >= -bias ? 0.0 : rangeCheck);
     }
 
+    vec3 tapLocation(uint i, const mat2 M) {
+        //float radius = float(i + mod(M[0][0], 1.0) + 0.5) * (1.0 / (kSpiralSampleCount - 0.5));
+        //float angle = radius * radius * (7.0 * 6.28) + M[0][0];
+        //return vec3(cos(angle), sin(angle), radius * radius);
+        return vec3(M * kSipralSamples[i].xy, kSipralSamples[i].z);
+    }
+
+    float computeAmbientOcclusion2(uint i, float ssDiskRadius, const ivec2 ssOrigin, const vec3 origin, const vec3 normal, const mat2 M) {
+        float radius = materialParams.radius;
+        float invRadiusSquared = 1.0 / (radius * radius);
+        float bias = materialParams.bias;
+
+        vec3 tl = tapLocation(i, M);
+        float ssRadius = max(0.75, tl.z * ssDiskRadius);
+        ivec2 ssSamplePos = ssOrigin + ivec2(ssRadius * tl.xy);
+
+        ivec2 textureSamplePos = clamp(ssSamplePos, ivec2(0), textureSize(materialParams_depth, 0) - ivec2(1));
+        float occlusionDepth = linearizeDepth(texelFetch(materialParams_depth, textureSamplePos, 0).r);
+
+        vec2 uvSamplePos = (vec2(ssSamplePos) + vec2(0.5)) * frameUniforms.resolution.zw;
+        vec3 p = computeViewSpacePositionFromDepth(uvSamplePos * 2.0 - 1.0, occlusionDepth);
+
+        // now we have the sample, compute AO
+        vec3 v = p - origin;        // sample vector
+        float vv = dot(v, v);       // squared distance
+        float vn = dot(v, normal);  // distance * cos(v, normal)
+        const float uu = 0.015;
+        float falloff = saturate(1.0 - vv * invRadiusSquared);
+        float occlusion = falloff * max(0.0, vn - bias) / (vv + uu);
+        return occlusion;
+    }
+
     void material(inout MaterialInputs material) {
         prepareMaterial(material);
 
+        float radius = materialParams.radius;
+
+        // Pixels-per-meter at z=-1
+        // -height / (2.0 * tan(verticalFieldOfView * 0.5))
+        const float projScale = 500;
+
         vec2 uv = variable_vertex.xy; // interpolated to pixel center
+
         vec3 noise = getNoise(uv);
+        mat2 M;
+        M[0] = noise.xy;
+        M[1] = vec2(-noise.y, noise.x);
+
         float depth = sampleDepthLinear(uv);
         vec3 origin = computeViewSpacePositionFromDepth(variable_vertex.zw, depth);
+        ivec2 ssOrigin = ivec2(uv * frameUniforms.resolution.xy);
         vec3 normal = computeViewSpaceNormalNotNormalized(origin);
 
         // attempt to reject "bad" normals that were reconstructed at an edge that cause
@@ -136,17 +187,33 @@ fragment {
             return;
         }
 
-        normal = normalize(normal);
-        float occlusion = 0.0;
-        for (uint i = 0u; i < kSphereSampleCount; i++) {
-            occlusion += computeAmbientOcclusion(origin, normal, noise, kSphereSamples[i]);
+        // Choose the screen-space sample radius
+        // proportional to the projected area of the sphere
+        float ssDiskRadius = -projScale * radius / origin.z;
+        if (ssDiskRadius <= 1.0) {
+            // There is no way to compute AO at this radius
+            material.baseColor.r = 1.0;
+            return;
         }
 
-        float ao = 1.0 - occlusion / float(kSphereSampleCount);
+        normal = normalize(normal);
+        float occlusion = 0.0;
+        float ao;
+
+        if (uv.x < 0.5) {
+            for (uint i = 0u; i < kSphereSampleCount; i++) {
+                occlusion += computeAmbientOcclusion(origin, normal, noise, kSphereSamples[i]);
+            }
+            ao = 1.0 - occlusion / float(kSphereSampleCount);
+        } else {
+            for (uint i = 0u; i < kSpiralSampleCount; i++) {
+                occlusion += computeAmbientOcclusion2(i, ssDiskRadius, ssOrigin, origin, normal, M);
+            }
+            ao = 1.0 - occlusion / float(kSpiralSampleCount);
+        }
 
         // simulate user-controled ao^n with n[1, 2]
         ao = mix(ao, ao * ao, materialParams.power);
-
         material.baseColor.r = ao;
     }
 }
