@@ -88,6 +88,7 @@ if [[ "$KOKORO_BUILD_ID" ]]; then
     sudo alien embree3-lib-3.5.2-1.x86_64.rpm
     sudo dpkg -i embree3-lib_3.5.2-2_amd64.deb
     sudo dpkg -i embree3-devel_3.5.2-2_all.deb
+    ls /usr/include/embree3
 
     cd ../..
 
