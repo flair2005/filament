@@ -61,10 +61,17 @@ fragment {
 
     const uint kSpiralSampleCount = 7;
     const vec3 kSipralSamples[kSpiralSampleCount] = vec3[](
-        vec3(0.966326,0.257322,0.00591716), vec3(-0.69718,0.716896,0.0532544), vec3(0.975223,0.221226,0.147929),
-        vec3(0.982771,0.184826,0.289941), vec3(-0.613055,0.79004,0.47929), vec3(0.997237,0.0742889,0.715976),
-        vec3(1,-1.16027e-06,1)
+        vec3(0.885456,0.464723,0.0769231), vec3(0.120537,0.992709,0.230769), vec3(-0.748511,0.663123,0.384615), vec3(-0.970942,-0.239316,0.538462),
+        vec3(-0.354605,-0.935016,0.692308), vec3(0.568065,-0.822984,0.846154), vec3(1,1.74846e-07,1)
     );
+
+    const uint kTrigNoiseSampleCount = 16;
+    const vec3 kTrigNoiseSamples[kTrigNoiseSampleCount] = vec3[](
+        vec3(0.0759449,0.997112,0.0317202), vec3(-0.53898,-0.842318,0.0879207), vec3(0.672069,0.740488,0.0176937), vec3(-0.323441,-0.946248,0.0930107),
+        vec3(0.330969,0.943642,0.026175), vec3(0.341023,-0.940055,0.107385), vec3(-0.197094,0.980384,0.0375434), vec3(0.106268,-0.994338,0.102259),
+        vec3(0.955394,0.295335,0.00636207), vec3(0.306817,0.951768,0.0267157), vec3(-0.882675,0.469983,0.056284), vec3(0.671194,-0.741282,0.115615),
+        vec3(-0.958342,0.285624,0.0605199), vec3(0.954542,-0.298078,0.12691), vec3(-0.586923,-0.809643,0.0866893), vec3(0.679755,-0.73344,0.115861)
+);
 
     float random(const vec2 st) {
         return fract(sin(dot(st.xy, vec2(12.9898,78.233)))* 43758.5453123);
@@ -75,6 +82,18 @@ fragment {
         uint iy = uint(gl_FragCoord.y) & 3u;
         vec3 noise = kNoiseSamples[ix + iy * 4];
         //vec3 noise = normalize(vec3(random(uv), random(uv*2.0), random(uv*4.0)));
+        return noise;
+    }
+
+    vec3 getTrigNoise(const vec2 uv) {
+        //const float dalpha = 1.0f / (float(kSpiralSampleCount) - 0.5f);
+        //const float dturns = (1.0 * 6.28318);
+        //const float dphi = dalpha * dturns + 6.28318;
+        //float phi = random(uv) * 0.5 + 0.5;
+        //return vec3(cos(phi * dphi), sin(phi * dphi), phi * dalpha);
+        uint ix = uint(gl_FragCoord.x) & 3u;
+        uint iy = uint(gl_FragCoord.y) & 3u;
+        vec3 noise = kTrigNoiseSamples[ix + iy * 4];
         return noise;
     }
 
@@ -124,19 +143,24 @@ fragment {
         return (d >= -bias ? 0.0 : rangeCheck);
     }
 
-    vec3 tapLocation(uint i, const mat2 M) {
-        //float radius = float(i + mod(M[0][0], 1.0) + 0.5) * (1.0 / (kSpiralSampleCount - 0.5));
-        //float angle = radius * radius * (7.0 * 6.28) + M[0][0];
-        //return vec3(cos(angle), sin(angle), radius * radius);
-        return vec3(M * kSipralSamples[i].xy, kSipralSamples[i].z);
+    vec3 tapLocation(uint i, const vec3 noise) {
+        //const float dalpha = 1.0f / (float(kSpiralSampleCount) - 0.5f);
+        //const float dturns = (1.0 * 6.28318);
+        //float phi = noise.z / dalpha;
+        //float alpha = (float(i) + 0.5) * dalpha + phi * (dalpha * dturns + 6.28318);
+        //float radius = alpha + phi * dalpha;
+        //vec3(cos(alpha), sin(alpha), radius * radius);
+        mat2 M = mat2(noise.xy, vec2(-noise.y, noise.x));
+        float radius = kSipralSamples[i].z + noise.z;
+        return vec3(M * kSipralSamples[i].xy, radius * radius);
     }
 
-    float computeAmbientOcclusion2(uint i, float ssDiskRadius, const ivec2 ssOrigin, const vec3 origin, const vec3 normal, const mat2 M) {
+    float computeAmbientOcclusion2(uint i, float ssDiskRadius, const ivec2 ssOrigin, const vec3 origin, const vec3 normal, const vec3 noise) {
         float radius = materialParams.radius;
         float invRadiusSquared = 1.0 / (radius * radius);
         float bias = materialParams.bias;
 
-        vec3 tl = tapLocation(i, M);
+        vec3 tl = tapLocation(i, noise);
         float ssRadius = max(0.75, tl.z * ssDiskRadius);
         ivec2 ssSamplePos = ssOrigin + ivec2(ssRadius * tl.xy);
 
@@ -167,11 +191,6 @@ fragment {
 
         vec2 uv = variable_vertex.xy; // interpolated to pixel center
 
-        vec3 noise = getNoise(uv);
-        mat2 M;
-        M[0] = noise.xy;
-        M[1] = vec2(-noise.y, noise.x);
-
         float depth = sampleDepthLinear(uv);
         vec3 origin = computeViewSpacePositionFromDepth(variable_vertex.zw, depth);
         ivec2 ssOrigin = ivec2(uv * frameUniforms.resolution.xy);
@@ -201,13 +220,15 @@ fragment {
         float ao;
 
         if (uv.x < 0.5) {
+            vec3 noise = getNoise(uv);
             for (uint i = 0u; i < kSphereSampleCount; i++) {
                 occlusion += computeAmbientOcclusion(origin, normal, noise, kSphereSamples[i]);
             }
             ao = 1.0 - occlusion / float(kSphereSampleCount);
         } else {
+            vec3 noise = getTrigNoise(uv);
             for (uint i = 0u; i < kSpiralSampleCount; i++) {
-                occlusion += computeAmbientOcclusion2(i, ssDiskRadius, ssOrigin, origin, normal, M);
+                occlusion += computeAmbientOcclusion2(i, ssDiskRadius, ssOrigin, origin, normal, noise);
             }
             ao = 1.0 - occlusion / float(kSpiralSampleCount);
         }

@@ -75,16 +75,36 @@ int main(int argc, char** argv) {
     }
     std::cout << ");" << std::endl;
 
-    float kSpiralTurns = 7.0;
-    size_t spiralSampleCount = 7;
+    const float kSpiralTurns = 1.0;
+    const size_t spiralSampleCount = 7;
     std::cout << "const uint kSpiralSampleCount = " << spiralSampleCount << ";" << std::endl;
     std::cout << "const vec3 kSipralSamples[kSpiralSampleCount] = vec3[](" << std::endl;
+    const float dalpha = 1.0f / (spiralSampleCount - 0.5f);
+    const float dturns = (kSpiralTurns * 2.0f * M_PI);
     for (size_t i = 0; i < spiralSampleCount; i++) {
-        float radius = (i + 0.5f) / (spiralSampleCount - 0.5f);
-        float angle = radius * radius * (kSpiralTurns * 2.0f * M_PI);
-        std::cout << " vec3(" << std::cos(angle) << "," << std::sin(angle) << "," << radius * radius << "),";
+        float alpha = (i + 0.5f) * dalpha;
+        float angle = alpha * dturns;
+        float radius = alpha;
+        std::cout << " vec3(" << std::cos(angle) << "," << std::sin(angle) << "," << radius << "),";
     }
+    std::cout << ");" << std::endl;
 
+
+    const float dphi = dalpha * dturns + 2.0f * M_PI;
+    size_t trigNoiseSampleCount = 16;
+    std::cout << "const uint kTrigNoiseSampleCount = " << sphereSampleCount << ";" << std::endl;
+    std::cout << "const vec3 kTrigNoiseSamples[kTrigNoiseSampleCount] = vec3[](" << std::endl;
+    for (size_t i = 0; i < trigNoiseSampleCount; i++) {
+        float phi = random(generator);
+        float3 d = { std::cos(phi * dphi), std::sin(phi * dphi), phi * dalpha };
+        if ((i & 0x3) == 0) {
+            std::cout << "   ";
+        }
+        std::cout << " vec3(" << d.x << "," << d.y << "," << d.z << "),";
+        if ((i & 0x3) == 0x3) {
+            std::cout << std::endl;
+        }
+    }
     std::cout << ");" << std::endl;
 
     return 0;
